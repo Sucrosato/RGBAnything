@@ -169,7 +169,7 @@ class RGBAnything(nn.Module):
         }
         
         self.encoder = encoder
-        self.pretrained = DINOv2(model_name=encoder, in_chans=2) # 输入RB
+        self.pretrained = DINOv2(model_name=encoder)
         
         self.depth_head = DPTHead(self.pretrained.embed_dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
     
@@ -179,7 +179,7 @@ class RGBAnything(nn.Module):
         features = self.pretrained.get_intermediate_layers(x, self.intermediate_layer_idx[self.encoder], return_class_token=True)
         
         depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.relu(depth)
+        depth = F.relu(depth) #
         
         return depth.squeeze(1)
     
@@ -212,7 +212,7 @@ class RGBAnything(nn.Module):
         h, w = raw_image.shape[:2]
         
         image = cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB) / 255.0
-        
+        image = image[:, :, [0, 2]]  # 取RB通道
         image = transform({'image': image})['image']
         image = torch.from_numpy(image).unsqueeze(0)
         

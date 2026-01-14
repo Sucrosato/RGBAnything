@@ -46,7 +46,7 @@ class DinoVisionTransformer(nn.Module):
         self,
         img_size=224,
         patch_size=16,
-        in_chans=3,
+        in_chans=2,  # RB
         embed_dim=768,
         depth=12,
         num_heads=12,
@@ -339,6 +339,7 @@ def init_weights_vit_timm(module: nn.Module, name: str = ""):
 def vit_small(patch_size=16, num_register_tokens=0, **kwargs):
     model = DinoVisionTransformer(
         patch_size=patch_size,
+        in_chans=2, # RB
         embed_dim=384,
         depth=12,
         num_heads=6,
@@ -353,6 +354,7 @@ def vit_small(patch_size=16, num_register_tokens=0, **kwargs):
 def vit_base(patch_size=16, num_register_tokens=0, **kwargs):
     model = DinoVisionTransformer(
         patch_size=patch_size,
+        in_chans=2, # RB
         embed_dim=768,
         depth=12,
         num_heads=12,
@@ -367,6 +369,7 @@ def vit_base(patch_size=16, num_register_tokens=0, **kwargs):
 def vit_large(patch_size=16, num_register_tokens=0, **kwargs):
     model = DinoVisionTransformer(
         patch_size=patch_size,
+        in_chans=2, # RB
         embed_dim=1024,
         depth=24,
         num_heads=16,
@@ -384,6 +387,7 @@ def vit_giant2(patch_size=16, num_register_tokens=0, **kwargs):
     """
     model = DinoVisionTransformer(
         patch_size=patch_size,
+        in_chans=2, # RB
         embed_dim=1536,
         depth=40,
         num_heads=24,
