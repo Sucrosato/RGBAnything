@@ -2,6 +2,7 @@ import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from matplotlib import pyplot as plt
 from torchvision.transforms import Compose
 
 from .dinov2 import DINOv2
@@ -171,9 +172,42 @@ class RGBAnything(nn.Module):
         
         self.encoder = encoder
         self.pretrained = DINOv2(model_name=encoder)
+        checkpoint_url = f"https://dl.fbaipublicfiles.com/dinov2/dinov2_{encoder}/dinov2_{encoder}14_pretrain.pth"
+        # 这里可以使用 torch.hub.load_state_dict_from_url 自动下载到本地缓存
+        state_dict = torch.hub.load_state_dict_from_url(checkpoint_url, map_location='cpu')
         
+        # 执行方案二中的“切片操作”
+        old_weight = state_dict['patch_embed.proj.weight']
+        state_dict['patch_embed.proj.weight'] = torch.stack([old_weight[:, 0, :, :], old_weight[:, 2, :, :]], dim=1)
+        
+        self.pretrained.load_state_dict(state_dict, strict=False)
         self.depth_head = DPTHead(self.pretrained.embed_dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-    
+
+    def _init_weights(self):
+        # 遍历所有的子模块
+        for m in self.depth_head.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                # Kaiming 初始化：适合 ReLU 激活函数
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            
+            elif isinstance(m, nn.BatchNorm2d):
+                # BatchNorm 初始化：权重设为 1，偏置设为 0
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0) #
+                
+            elif isinstance(m, nn.Linear):
+                # 线性层初始化
+                nn.init.normal_(m.weight, 0, 0.001)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            if hasattr(self.depth_head.scratch, 'output_conv2'):
+                last_conv = self.depth_head.scratch.output_conv2[-2] # 找到倒数第二个元素(即卷积层)
+                if isinstance(last_conv, nn.Conv2d):
+                    nn.init.normal_(last_conv.weight, std=0.001) # 用极小的权重开始
+                    nn.init.constant_(last_conv.bias, 0)
+
     def forward(self, x):
         patch_h, patch_w = x.shape[-2] // 14, x.shape[-1] // 14
         
@@ -186,7 +220,7 @@ class RGBAnything(nn.Module):
     
     @torch.no_grad()
     def infer_image(self, raw_image, input_size=518): #
-        image, (h, w) = self.image2tensor(raw_image, input_size)
+        image, gt, (h, w) = self.image2tensor(raw_image, input_size)
         
         g_norm = self.forward(image)
         
@@ -194,6 +228,8 @@ class RGBAnything(nn.Module):
         g = g_norm * 0.224 + 0.456  # denormalize
         g = torch.clamp(g, 0.0, 1.0) # to [0, 1]
         g_int = (g.cpu().numpy() * 255.0).astype('uint8') # to [0, 255]
+        plt.imshow(g_int, cmap='Greens')
+        plt.imshow(gt, cmap='Greens')
         return g_int
     
     def image2tensor(self, raw_image, input_size=518):        
@@ -215,11 +251,12 @@ class RGBAnything(nn.Module):
         h, w = raw_image.shape[:2]
         
         image = cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB) / 255.0
-        image = image[:, :, [0, 2]]  # 取RB通道
-        image = transform({'image': image})['image']
-        image = torch.from_numpy(image).unsqueeze(0)
+        rb = image[:, :, [0, 2]]  # 取RB通道
+        g = image[:, :, [1]]  # 取G通道
+        rb = transform({'image': rb})['image']
+        rb = torch.from_numpy(rb).unsqueeze(0)
         
         DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
-        image = image.to(DEVICE)
+        rb = rb.to(DEVICE)
         
-        return image, (h, w)
+        return rb, g, (h, w)
