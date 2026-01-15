@@ -110,7 +110,8 @@ class DPTHead(nn.Module):
             nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
             nn.ReLU(True),
             nn.Conv2d(head_features_2, 1, kernel_size=1, stride=1, padding=0),
-            nn.ReLU(True),
+            # nn.ReLU(True),
+            nn.Identity(),
             nn.Identity(),
         )
     
@@ -179,19 +180,21 @@ class RGBAnything(nn.Module):
         features = self.pretrained.get_intermediate_layers(x, self.intermediate_layer_idx[self.encoder], return_class_token=True)
         
         depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.relu(depth) #
+        # depth = F.relu(depth) 
         
         return depth.squeeze(1)
     
     @torch.no_grad()
-    def infer_image(self, raw_image, input_size=518):
+    def infer_image(self, raw_image, input_size=518): #
         image, (h, w) = self.image2tensor(raw_image, input_size)
         
-        depth = self.forward(image)
+        g_norm = self.forward(image)
         
-        depth = F.interpolate(depth[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0]
-        
-        return depth.cpu().numpy()
+        g_norm = F.interpolate(g_norm[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0] # restore size
+        g = g_norm * 0.224 + 0.456  # denormalize
+        g = torch.clamp(g, 0.0, 1.0) # to [0, 1]
+        g_int = (g.cpu().numpy() * 255.0).astype('uint8') # to [0, 255]
+        return g_int
     
     def image2tensor(self, raw_image, input_size=518):        
         transform = Compose([
