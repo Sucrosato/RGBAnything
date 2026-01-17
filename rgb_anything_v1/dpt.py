@@ -184,29 +184,37 @@ class RGBAnything(nn.Module):
         self.depth_head = DPTHead(self.pretrained.embed_dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
 
     def _init_weights(self):
-        # 遍历所有的子模块
-        for m in self.depth_head.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
-                # Kaiming 初始化：适合 ReLU 激活函数
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            
-            elif isinstance(m, nn.BatchNorm2d):
-                # BatchNorm 初始化：权重设为 1，偏置设为 0
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0) #
+            for m in self.depth_head.modules():
+                if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
                 
-            elif isinstance(m, nn.Linear):
-                # 线性层初始化
-                nn.init.normal_(m.weight, 0, 0.001)
-                if m.bias is not None:
+                elif isinstance(m, nn.BatchNorm2d):
+                    nn.init.constant_(m.weight, 1)
                     nn.init.constant_(m.bias, 0)
+                    
+                elif isinstance(m, nn.Linear):
+                    nn.init.normal_(m.weight, 0, 0.01)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+
             if hasattr(self.depth_head.scratch, 'output_conv2'):
-                last_conv = self.depth_head.scratch.output_conv2[-2] # 找到倒数第二个元素(即卷积层)
-                if isinstance(last_conv, nn.Conv2d):
-                    nn.init.normal_(last_conv.weight, std=0.001) # 用极小的权重开始
-                    nn.init.constant_(last_conv.bias, 0)
+                out_layer = self.depth_head.scratch.output_conv2
+                
+                last_conv = None
+                if isinstance(out_layer, nn.Sequential):
+                    for layer in reversed(out_layer):
+                        if isinstance(layer, nn.Conv2d):
+                            last_conv = layer
+                            break
+                elif isinstance(out_layer, nn.Conv2d):
+                    last_conv = out_layer
+
+                if last_conv is not None:
+                    nn.init.normal_(last_conv.weight, std=0.00001) 
+                    if last_conv.bias is not None:
+                        nn.init.constant_(last_conv.bias, 0)
 
     def forward(self, x):
         patch_h, patch_w = x.shape[-2] // 14, x.shape[-1] // 14
@@ -219,7 +227,7 @@ class RGBAnything(nn.Module):
         return depth.squeeze(1)
     
     @torch.no_grad()
-    def infer_image(self, raw_image, input_size=518): #
+    def infer_image(self, raw_image, input_size=518, compare=False): #
         image, gt, (h, w) = self.image2tensor(raw_image, input_size)
         
         g_norm = self.forward(image)
@@ -228,8 +236,8 @@ class RGBAnything(nn.Module):
         g = g_norm * 0.224 + 0.456  # denormalize
         g = torch.clamp(g, 0.0, 1.0) # to [0, 1]
         g_int = (g.cpu().numpy() * 255.0).astype('uint8') # to [0, 255]
-        plt.imshow(g_int, cmap='Greens')
-        plt.imshow(gt, cmap='Greens')
+        if compare:
+            return gt, g_int
         return g_int
     
     def image2tensor(self, raw_image, input_size=518):        

@@ -1502,7 +1502,7 @@ def train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs,
 
     Defined in :numref:`sec_image_augmentation`"""
     timer, num_batches = d2l.Timer(), len(train_iter)
-    animator = d2l.Animator(xlabel='epoch', xlim=[1, num_epochs], ylim=[0, 1],
+    animator = d2l.Animator(xlabel='epoch', xlim=[0, num_epochs], ylim=[0, 1], #
                             legend=['train loss', 'train absrel', 'test absrel'])
     net = nn.DataParallel(net, device_ids=devices).to(devices[0])
     for epoch in range(num_epochs):
@@ -1517,11 +1517,11 @@ def train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs,
             timer.stop()
             if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:
                 animator.add(epoch + (i + 1) / num_batches,
-                             (metric[0] / metric[2] / 1000, metric[1] / metric[3],
+                             (metric[0] / metric[2], metric[1] / metric[3],
                               None))
         test_acc = d2l.evaluate_accuracy_gpu(net, test_iter)
         animator.add(epoch + 1, (None, None, test_acc))
-    print(f'loss/1000 {metric[0] / metric[2]:.3f}, train absrel '
+    print(f'loss {metric[0] / metric[2]:.3f}, train absrel '
           f'{metric[1] / metric[3]:.3f}, test absrel {test_acc:.3f}')
     print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec on '
           f'{str(devices)}')
@@ -3045,7 +3045,7 @@ def evaluate_accuracy_gpu(net, data_iter, device=None):
             else:
                 X = X.to(device)
             y = y.to(device)
-            metric.add(absrel(net(X), y), d2l.size(y)) #
+            metric.add(absrel(net(X), y), 1) #
     return metric[0] / metric[1]
 
 
@@ -3196,12 +3196,13 @@ def accuracy(y_hat, y):
     cmp = d2l.astype(y_hat, y.dtype) == y
     return float(d2l.reduce_sum(d2l.astype(cmp, y.dtype)))
 #
-def absrel(y_hat, y, threshold = 5):
+def absrel(y_hat, y, threshold = 5, need_denorm=True):
     with torch.no_grad():
-        denorm = lambda x: ((x * 0.224 + 0.456) * 255).clamp(0, 255).to(torch.uint8).to(torch.float32)  
-        y, y_hat = denorm(y), denorm(y_hat)
+        if need_denorm:
+            denorm = lambda x: ((x * 0.224 + 0.456) * 255).clamp(0, 255).to(torch.uint8).to(torch.float32)  
+            y, y_hat = denorm(y), denorm(y_hat)
         mask = y >= threshold
-        abs_rel = torch.log(0.05 / torch.mean(torch.abs(y_hat[mask] - y[mask]) / y[mask])) / 10 + 1
+        abs_rel = torch.log(0.05 / torch.mean(torch.abs(y_hat[mask] - y[mask]) / y[mask])) / 10 + 1  # log(0.05/absrel) / 10 + 1, roughly limited in [0.3, 1] 
     return abs_rel.item()
 
 def download(url, folder='../data', sha1_hash=None):
